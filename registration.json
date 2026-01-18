@@ -1,0 +1,32 @@
+{
+  "type": "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+  "name": "Donald Tramp",
+  "description": "Copy of the Goat",
+  "image": "https://example.com/agent.png",
+  "endpoints": [
+    {
+      "name": "A2A",
+      "endpoint": "https://donald-tramp.example.com/.well-known/agent-card.json",
+      "version": "0.3.0"
+    },
+    {
+      "name": "MCP",
+      "endpoint": "https://donald-tramp.example.com/mcp",
+      "version": "2025-06-18"
+    },
+    {
+      "name": "agentWallet",
+      "endpoint": "eip155:11155111:0x2AAF0454eB4B6D59B09E1BB49B00a8cF2dDDa89e"
+    }
+  ],
+  "registrations": [],
+  "supportedTrust": [
+    "reputation",
+    "crypto-economic",
+    "tee-attestation"
+  ],
+  "active": true,
+  "skills": [],
+  "domains": [],
+  "x402support": true
+}
