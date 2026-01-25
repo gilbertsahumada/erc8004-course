@@ -1,0 +1,166 @@
+### Variables
+@baseUrl = http://localhost:5002
+@taskId = 12345
+
+### ============================================================================
+### Agent Discovery - Get Agent Card
+### ============================================================================
+GET {{baseUrl}}/.well-known/agent-card.json
+
+### ============================================================================
+### Transcribe Video
+### ============================================================================
+POST {{baseUrl}}/a2a
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "message/send",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "transcribe https://youtu.be/P1HLBgU-vds"
+        }
+      ]
+    }
+  },
+  "id": 1
+}
+
+### ============================================================================
+### Summarize Video
+### ============================================================================
+POST {{baseUrl}}/a2a
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "message/send",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "summarize https://youtu.be/P1HLBgU-vds"
+        }
+      ]
+    }
+  },
+  "id": 2
+}
+
+### ============================================================================
+### Message with Streaming
+### ============================================================================
+POST {{baseUrl}}/a2a
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "message/send",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Hello, how are you?"
+        }
+      ]
+    },
+    "configuration": {
+      "streaming": true
+    }
+  },
+  "id": 3
+}
+
+### ============================================================================
+### Get Task by ID
+### Replace @taskId variable with actual task ID from previous response
+### ============================================================================
+POST {{baseUrl}}/a2a
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "tasks/get",
+  "params": {
+    "taskId": "{{taskId}}"
+  },
+  "id": 4
+}
+
+### ============================================================================
+### Cancel Task
+### Replace @taskId variable with actual task ID
+### ============================================================================
+POST {{baseUrl}}/a2a
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "tasks/cancel",
+  "params": {
+    "taskId": "{{taskId}}"
+  },
+  "id": 5
+}
+
+### ============================================================================
+### Conversation with Context
+### First message - creates a new contextId
+### ============================================================================
+POST {{baseUrl}}/a2a
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "message/send",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "My name is Gilberts"
+        }
+      ]
+    },
+    "configuration": {
+      "contextId": "test-context-123"
+    }
+  },
+  "id": 6
+}
+
+### ============================================================================
+### Continue Conversation
+### Second message - uses same contextId to maintain context
+### ============================================================================
+POST {{baseUrl}}/a2a
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "method": "message/send",
+  "params": {
+    "message": {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What's my name?"
+        }
+      ]
+    },
+    "configuration": {
+      "contextId": "test-context-123"
+    }
+  },
+  "id": 7
+}

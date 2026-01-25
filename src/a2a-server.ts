@@ -15,10 +15,10 @@
  */
 
 import 'dotenv/config';
-import express, { Request, Response } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { streamResponse, type AgentMessage } from './agent.js';
-import { paymentMiddleware, x402ResourceServer } from '@x402/express';
+import { streamResponseWithTools, type AgentMessage } from './agent.js';
+import { paymentMiddleware, x402ResourceServer, Network } from '@x402/express';
 import { HTTPFacilitatorClient } from '@x402/core/server';
 import { ExactEvmScheme } from '@x402/evm/exact/server';
 
@@ -52,54 +52,77 @@ const conversationHistory = new Map<string, AgentMessage[]>();
 // Middleware & Routes
 // ============================================================================
 
+const PRICES: Record<string, string> = {
+  transcribe: '$0.07', // Price for transcription tool
+  summarize: '$0.10', // Price for summarization tool
+}
+
+const x402Config = {
+  payeeAddress: process.env.X402_PAYEE_ADDRESS || '0x2AAF0454eB4B6D59B09E1BB49B00a8cF2dDDa89e',
+  network: 'eip155:84532' as Network, // CAIP-2 EVM network
+  //facilitatorUrl: 'https://x402.org/facilitator', // Testnet facilitator
+}
 // x402 v2 payment middleware - protects the /a2a endpoint
 // See: https://docs.cdp.coinbase.com/x402/quickstart-for-sellers
-const PAYEE_ADDRESS = process.env.X402_PAYEE_ADDRESS || '0x2AAF0454eB4B6D59B09E1BB49B00a8cF2dDDa89e';
-const X402_NETWORK = 'eip155:11155111'; // CAIP-2 EVM network
+//const PAYEE_ADDRESS = process.env.X402_PAYEE_ADDRESS || '0x2AAF0454eB4B6D59B09E1BB49B00a8cF2dDDa89e';
+//const X402_NETWORK = 'eip155:11155111'; // CAIP-2 EVM network
 
 // Create facilitator client (testnet - change URL for mainnet)
 const facilitatorClient = new HTTPFacilitatorClient({
   url: 'https://x402.org/facilitator', // Testnet facilitator
 });
 
-// Register EVM scheme for payment verification
 const x402Server = new x402ResourceServer(facilitatorClient)
-  .register(X402_NETWORK, new ExactEvmScheme());
+  .register(x402Config.network, new ExactEvmScheme());
 
-app.use(
-  paymentMiddleware(
+function dynamicPricing(req: Request, res: Response, next: NextFunction) {
+  const method = req.body?.params?.message?.parts?.[0]?.text || '';
+
+  let price = PRICES['transcribe']; // Default price
+  for (const [service, servicePrice] of Object.entries(PRICES)) {
+    if (method.toLowerCase().includes(service)) {
+      price = servicePrice;
+      break;
+    }
+  }
+
+  return paymentMiddleware(
     {
       'POST /a2a': {
         accepts: [
           {
             scheme: 'exact',
-            price: process.env.X402_PRICE || '$0.001',
-            network: X402_NETWORK,
-            payTo: PAYEE_ADDRESS,
+            price: price,
+            network: x402Config.network,
+            payTo: x402Config.payeeAddress,
           },
         ],
-        description: 'Copy of the Goat',
+        description: 'A2A JSON-RPC endpoint with dynamic pricing',
         mimeType: 'application/json',
       },
     },
     x402Server,
-  ),
-);
+  )(req, res, next);
+}
 
 /**
  * Agent Card endpoint - required for A2A discovery
  * Other agents use this to learn about your agent's capabilities
+ * This endpoint is FREE (no payment required)
  */
 app.get('/.well-known/agent-card.json', async (_req: Request, res: Response) => {
-  const agentCard = await import('../.well-known/agent-card.json', { assert: { type: 'json' } });
+  const agentCard = await import('../.well-known/agent-card.json', 
+    { assert: { type: 'json' } });
   res.json(agentCard.default);
 });
 
 /**
  * Main JSON-RPC 2.0 endpoint
  * All A2A protocol methods are called through this single endpoint
+ * Protected by x402 payment middleware with dynamic pricing
  */
-app.post('/a2a', async (req: Request, res: Response) => {
+//app.post('/a2a', dynamicPricing, async (req: Request, res: Response) => {
+app.post('/a2a', dynamicPricing, async (req: Request, res: Response) => {
   const { jsonrpc, method, params, id } = req.body;
 
   // Validate JSON-RPC version
@@ -134,13 +157,50 @@ async function handleMethod(method: string, params: any, res?: express.Response)
   switch (method) {
     case 'message/send':
       return handleMessageSend(params, res);
+    case 'message/stream':
+      // Alias for streaming - some clients use this
+      return handleMessageSend({ ...params, configuration: { ...params.configuration, streaming: true } }, res);
     case 'tasks/get':
       return handleTasksGet(params);
     case 'tasks/cancel':
       return handleTasksCancel(params);
+    case 'tasks/resubmit':
+      // Continue a task that was in input-required state
+      return handleTaskResubmit(params, res);
     default:
       throw new Error(`Method not found: ${method}`);
   }
+}
+
+/**
+ * Handle tasks/resubmit - continue a task that needs input
+ * This is used when a task is in 'input-required' state
+ */
+async function handleTaskResubmit(
+  params: {
+    taskId: string;
+    message: { role: string; parts: Array<{ type: string; text?: string }> };
+    configuration?: { streaming?: boolean };
+  },
+  res?: express.Response
+) {
+  const task = tasks.get(params.taskId);
+  if (!task) {
+    throw new Error('Task not found');
+  }
+
+  if (task.status !== 'input-required') {
+    throw new Error(`Task is not awaiting input. Current status: ${task.status}`);
+  }
+
+  // Continue the task by sending a new message with the same context
+  return handleMessageSend({
+    message: params.message,
+    configuration: {
+      contextId: task.contextId,
+      streaming: params.configuration?.streaming,
+    },
+  }, res);
 }
 
 /**
@@ -198,7 +258,7 @@ async function handleMessageSend(
 
     // Stream the response
     let fullResponse = '';
-    for await (const chunk of streamResponse(userText, history)) {
+    for await (const chunk of streamResponseWithTools(userText, history)) {
       fullResponse += chunk;
       
       // Send each chunk as an SSE event
@@ -240,7 +300,7 @@ async function handleMessageSend(
 
   // Non-streaming: generate complete response
   let responseText = '';
-  for await (const chunk of streamResponse(userText, history)) {
+  for await (const chunk of streamResponseWithTools(userText, history)) {
     responseText += chunk;
   }
 
@@ -294,7 +354,7 @@ async function handleTasksCancel(params: { taskId: string }) {
 // Start Server
 // ============================================================================
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5002;
 app.listen(PORT, () => {
   console.log(`🤖 A2A Server running on http://localhost:${PORT}`);
   console.log(`📋 Agent Card: http://localhost:${PORT}/.well-known/agent-card.json`);

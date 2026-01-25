@@ -1,7 +1,7 @@
 {
-  "name": "Donald Tramp",
-  "description": "Copy of the Goat",
-  "url": "http://localhost:3000",
+  "name": "YouTube Transcription Agent",
+  "description": "AI agent that transcribes and summarizes YouTube videos using Whisper API",
+  "url": "http://localhost:5002",
   "version": "1.0.0",
   "capabilities": {
     "streaming": true,
@@ -21,6 +21,36 @@
     "text"
   ],
   "skills": [
+    {
+      "id": "transcribe_video",
+      "name": "Transcribe Video",
+      "description": "Transcribe a YouTube video to text with timestamps using OpenAI Whisper API",
+      "tags": [
+        "youtube",
+        "transcription",
+        "whisper",
+        "audio"
+      ],
+      "examples": [
+        "transcribe https://youtube.com/watch?v=VIDEO_ID",
+        "transcribe https://youtu.be/VIDEO_ID"
+      ]
+    },
+    {
+      "id": "summarize_video",
+      "name": "Summarize Video",
+      "description": "Transcribe and summarize a YouTube video, extracting key points",
+      "tags": [
+        "youtube",
+        "summary",
+        "transcription",
+        "analysis"
+      ],
+      "examples": [
+        "summarize https://youtube.com/watch?v=VIDEO_ID",
+        "summarize https://youtu.be/VIDEO_ID"
+      ]
+    },
     {
       "id": "chat",
       "name": "Chat",
