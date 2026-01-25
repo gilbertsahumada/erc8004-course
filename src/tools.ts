@@ -13,6 +13,7 @@
  */
 
 import { generateResponse } from './agent.js';
+import { transcribe, summarize } from './services/transcript-extractor.js';
 
 // ============================================================================
 // Tool Definitions
@@ -35,41 +36,33 @@ export const tools = [
     },
   },
   {
-    name: 'echo',
-    description: 'Echo back the input message (for testing)',
+    name: 'transcribe_video',
+    description: 'Transcribe a YouTube video given its URL',
     inputSchema: {
-      type: 'object' as const,
+      type: 'object',
       properties: {
-        message: {
+        videoUrl: {
           type: 'string',
-          description: 'The message to echo',
-        },
+          description: 'The URL of the YouTube video to transcribe',
+        }
       },
-      required: ['message'],
+      required: ['videoUrl'],
     },
   },
   {
-    name: 'get_time',
-    description: 'Get the current time',
+    name: 'summarize_video',
+    description: 'Summarize a YouTube video given its URL',
     inputSchema: {
-      type: 'object' as const,
-      properties: {},
-      required: [],
+      type: 'object',
+      properties: {
+        videoUrl: {
+          type: 'string',
+          description: 'The URL of the YouTube video to summarize',
+        }
+      },
+      required: ['videoUrl'],
     },
-  },
-  // Add more tools here, for example:
-  // {
-  //   name: 'search_database',
-  //   description: 'Search the database for records',
-  //   inputSchema: {
-  //     type: 'object' as const,
-  //     properties: {
-  //       query: { type: 'string', description: 'Search query' },
-  //       limit: { type: 'number', description: 'Max results' },
-  //     },
-  //     required: ['query'],
-  //   },
-  // },
+  }
 ];
 
 // ============================================================================
@@ -85,26 +78,19 @@ export async function handleToolCall(name: string, args: Record<string, unknown>
       const response = await generateResponse(message);
       return { response };
     }
-    
-    // Echo tool - simple test tool
-    case 'echo': {
-      const message = args.message as string;
-      return { echoed: message };
+
+    case 'summarize_video': {
+      const videoUrl = args.videoUrl as string;
+      const summaryResult = await summarize(videoUrl);
+      return summaryResult;
     }
-    
-    // Get time tool - returns current timestamp
-    case 'get_time': {
-      return { time: new Date().toISOString() };
+
+    case 'transcribe_video': {
+      const videoUrl = args.videoUrl as string;
+      const transcriptResult = await transcribe(videoUrl);
+      return transcriptResult;
     }
-    
-    // Add your tool implementations here:
-    // case 'search_database': {
-    //   const query = args.query as string;
-    //   const limit = (args.limit as number) || 10;
-    //   const results = await searchDB(query, limit);
-    //   return { results };
-    // }
-    
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
