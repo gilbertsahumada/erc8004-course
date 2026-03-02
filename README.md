@@ -20,27 +20,208 @@ Este agente expone dos interfaces:
 ## Arquitectura
 
 ```
-                    Clientes
-         ┌────────────┴────────────┐
-         │                         │
-    [Humanos]                 [Agentes]
-    MCP (gratis)              A2A (x402)
-         │                         │
-         └──────────┬──────────────┘
-                    │
-              ┌─────▼─────┐
-              │  agent.ts │
-              │ (GPT-4o)  │
-              └─────┬─────┘
-                    │
-              ┌─────▼─────┐
-              │ tools.ts  │
-              └─────┬─────┘
-                    │
-         ┌──────────▼──────────┐
-         │ transcript-extractor│
-         │   yt-dlp + Whisper  │
-         └─────────────────────┘
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                  YOUTUBE TRANSCRIPTION AGENT — ECOSISTEMA                    ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║   ┌─────────────────────────┐       ┌──────────────────────────────────┐     ║
+║   │   INTERFAZ MCP (gratis) │       │      INTERFAZ A2A (pago)         │     ║
+║   │   ─────────────────     │       │      ────────────────            │     ║
+║   │   Claude Desktop        │       │      POST /a2a                   │     ║
+║   │   Cursor / IDEs         │       │      + header X-Payment          │     ║
+║   │   stdio (local)         │       │      HTTP (remoto)               │     ║
+║   │                         │       │                                  │     ║
+║   │    Humanos              │       │        Otros Agentes             │     ║
+║   └────────────┬────────────┘       └───────────────┬──────────────────┘     ║
+║                └──────────────┬─────────────────────┘                        ║
+║                               ▼                                              ║
+║                ┌──────────────────────────────┐                              ║
+║                │       CORE DEL AGENTE        │                              ║
+║                │   ┌────────────────────────┐ │                              ║
+║                │   │  agent.ts              │ │                              ║
+║                │   │  GPT-4o-mini           │ │                              ║
+║                │   │  (function calling +   │ │                              ║
+║                │   │   streaming)           │ │                              ║
+║                │   └───────────┬────────────┘ │                              ║
+║                │               ▼              │                              ║
+║                │   ┌────────────────────────┐ │                              ║
+║                │   │  tools.ts              │ │                              ║
+║                │   │  handleToolCall()      │ │                              ║
+║                │   └───────────┬────────────┘ │                              ║
+║                │               ▼              │                              ║
+║                │   ┌────────────────────────┐ │                              ║
+║                │   │ transcript-extractor   │ │                              ║
+║                │   │  yt-dlp + Whisper API  │ │                              ║
+║                │   └────────────────────────┘ │                              ║
+║                └──────────────────────────────┘                              ║
+║                                                                              ║
+║  ═══════════════════  CAPAS DE PROTOCOLO  ════════════════════════════       ║
+║                                                                              ║
+║  ┌─────────────────────┐ ┌──────────────────┐ ┌───────────────────────┐      ║
+║  │   IDENTIDAD         │ │   PAGOS          │ │   DESCUBRIMIENTO      │      ║
+║  │  ─────────          │ │  ─────           │ │  ──────────────       │      ║
+║  │  ERC-8004           │ │  x402 Protocol   │ │  Agent Card           │      ║
+║  │  Identity Registry  │ │  HTTP 402 flow   │ │  .well-known/         │      ║
+║  │                     │ │                  │ │    agent-card.json    │      ║
+║  │  Ethereum Sepolia   │ │  Base Sepolia    │ │                       │      ║
+║  │  (registro unico)   │ │  (cada request)  │ │  Skills, auth,        │      ║
+║  │                     │ │                  │ │  capabilities         │      ║
+║  │  0x8004...8847      │ │  $0.07 / $0.10   │ │  (gratis, publico)    │      ║
+║  └─────────────────────┘ └──────────────────┘ └───────────────────────┘      ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+```
+
+## Flujo Completo
+
+El siguiente diagrama muestra las 4 fases del ciclo de vida de una request, desde el registro del agente hasta la entrega de la transcripcion:
+
+### Fase 1 — Registro (ERC-8004) · Una sola vez
+
+```
+┌──────────────┐                      ┌───────────────────────────┐
+│ Desarrollador│                      │  Identity Registry        │
+│ (register.ts)│                      │  Ethereum Sepolia         │
+└──────┬───────┘                      │  0x8004...8847            │
+       │                              └─────────────┬─────────────┘
+       │  1. registerAgent({                        │
+       │       agentUrl,                            │
+       │       name,                                │
+       │       description                          │
+       │     })                                     │
+       │───────────────────────────────────────────>│
+       │                                            │
+       │  2. Mint NFT (tokenId) ───────────────────>│  Almacena on-chain:
+       │                                            │  • URL del agente
+       │  3. tx confirmada                          │  • Nombre
+       │<───────────────────────────────────────────│  • Descripcion
+       │                                            │  • Owner address
+       │  ✅ Agente tiene identidad verificable     │
+       └────────────────────────────────────────────┘
+
+       ⚡ Esto se hace UNA VEZ. Despues el agente existe como NFT en la blockchain.
+```
+
+### Fase 2 — Descubrimiento (Agent Card) · Gratis
+
+```
+┌──────────────┐                      ┌───────────────────────────┐
+│  A2A Client  │                      │     A2A Server            │
+│  (agente     │                      │     localhost:5002        │
+│   externo)   │                      └─────────────┬─────────────┘
+└──────┬───────┘                                    │
+       │                                            │
+       │  1. GET /.well-known/agent-card.json       │
+       │───────────────────────────────────────────>│
+       │                                            │
+       │  2. 200 OK                                 │
+       │<───────────────────────────────────────────│
+       │     {                                      │
+       │       "name": "YouTube Transcription...",  │
+       │       "skills": ["transcribe", "summarize"]│
+       │       "authentication": { "schemes":       │
+       │         ["x402"] }                         │
+       │     }                                      │
+       │                                            │
+       │  ✅ Cliente sabe QUE hace el agente        │
+       │     y que necesita pago x402               │
+       └────────────────────────────────────────────┘
+
+       💡 Esto es GRATIS — cualquiera puede descubrir el agente.
+```
+
+### Fase 3 — Request + Pago (x402) · Cada request
+
+```
+┌──────────────┐           ┌──────────────┐           ┌──────────────────┐
+│  A2A Client  │           │  A2A Server  │           │    Facilitator   │
+│              │           │  (a2a-server │           │    x402.org      │
+│              │           │    .ts)      │           │                  │
+└──────┬───────┘           └──────┬───────┘           └────────┬─────────┘
+       │                          │                            │
+       │  1. POST /a2a            │                            │
+       │  { "transcribe video" }  │                            │
+       │─────────────────────────>│                            │
+       │                          │                            │
+       │  2. 402 Payment Required │                            │
+       │  {                       │                            │
+       │    "price": "$0.07",     │                            │
+       │    "network":            │                            │
+       │      "eip155:84532",     │                            │
+       │    "payTo": "0x..."      │                            │
+       │  }                       │                            │
+       │<─────────────────────────│                            │
+       │                          │                            │
+       │  3. Cliente paga         │                            │
+       │     on-chain (Base       │                            │
+       │     Sepolia) y obtiene   │                            │
+       │     proof de pago        │                            │
+       │                          │                            │
+       │  4. POST /a2a            │                            │
+       │  + header: X-Payment     │                            │
+       │  { "transcribe video" }  │                            │
+       │─────────────────────────>│                            │
+       │                          │                            │
+       │                          │  5. Verificar pago         │
+       │                          │─────────────────────────── >│
+       │                          │                            │
+       │                          │  6. { "valid": true }      │
+       │                          │<───────────────────────────│
+       │                          │                            │
+       │  7. 200 OK (procesar)    │                            │
+       │<─────────────────────────│                            │
+       │                          │                            │
+       │  ✅ Pago verificado,     │                            │
+       │     request procesado    │                            │
+       └──────────────────────────┘                            │
+
+       💰 Esto pasa en CADA REQUEST de pago (A2A).
+          MCP es gratis — no pasa por este flujo.
+```
+
+### Fase 4 — Transcripcion (Procesamiento interno)
+
+```
+┌──────────────┐    ┌────────────┐    ┌────────────────────┐    ┌──────────┐
+│  a2a-server  │    │  agent.ts  │    │      tools.ts      │    │transcript│
+│    .ts       │    │            │    │  handleToolCall()  │    │-extractor│
+└──────┬───────┘    └─────┬──────┘    └─────────┬──────────┘    └────┬─────┘
+       │                  │                     │                    │
+       │  1. mensaje del  │                     │                    │
+       │     usuario      │                     │                    │
+       │─────────────────>│                     │                    │
+       │                  │                     │                    │
+       │                  │  2. GPT-4o-mini     │                    │
+       │                  │     decide: usar    │                    │
+       │                  │     tool            │                    │
+       │                  │     "transcribe_    │                    │
+       │                  │      video"         │                    │
+       │                  │────────────────────>│                    │
+       │                  │                     │                    │
+       │                  │                     │  3. transcribe()   │
+       │                  │                     │───────────────────>│
+       │                  │                     │                    │
+       │                  │                     │    a. yt-dlp       │
+       │                  │                     │       descarga     │
+       │                  │                     │       audio        │
+       │                  │                     │                    │
+       │                  │                     │    b. Whisper API  │
+       │                  │                     │       transcribe   │
+       │                  │                     │                    │
+       │                  │                     │  4. VideoTranscript│
+       │                  │                     │<───────────────────│
+       │                  │                     │                    │
+       │                  │  5. tool result     │                    │
+       │                  │<────────────────────│                    │
+       │                  │                     │                    │
+       │                  │  6. GPT-4o-mini     │                    │
+       │                  │     formatea        │                    │
+       │  7. respuesta    │     respuesta       │                    │
+       │     (streaming)  │                     │                    │
+       │<─────────────────│                     │                    │
+       │                  │                     │                    │
+
+       🎬 El usuario recibe la transcripcion via SSE streaming.
 ```
 
 ## Requisitos
@@ -235,6 +416,38 @@ my-agent/
 ```
 
 ## Protocolos
+
+### x402 vs ERC-8004
+
+```
+┌───────────────────────┬──────────────────────┬──────────────────────────┐
+│                       │      ERC-8004        │         x402             │
+│                       │   (Identity NFT)     │    (Payment Protocol)    │
+├───────────────────────┼──────────────────────┼──────────────────────────┤
+│  Proposito            │  Registrar agente    │  Cobrar por servicio     │
+│                       │  como entidad unica  │  en cada request         │
+├───────────────────────┼──────────────────────┼──────────────────────────┤
+│  Cuando se usa        │  UNA VEZ             │  CADA REQUEST            │
+│                       │  (al crear agente)   │  (que requiera pago)     │
+├───────────────────────┼──────────────────────┼──────────────────────────┤
+│  Donde vive           │  Ethereum Sepolia    │  Base Sepolia            │
+│                       │  (L1)                │  (L2)                    │
+├───────────────────────┼──────────────────────┼──────────────────────────┤
+│  Responde a           │  "QUIEN es este      │  "CUANTO cuesta usar     │
+│                       │   agente?"           │   este servicio?"        │
+└───────────────────────┴──────────────────────┴──────────────────────────┘
+```
+
+```
+┌────────────────┬────────────────────────────────────────────────────┐
+│  Protocolo     │  Responde a...                                    │
+├────────────────┼────────────────────────────────────────────────────┤
+│  ERC-8004      │  QUIEN soy y DONDE estoy registrado               │
+│  x402          │  CUANTO cuesta y COMO pagar                        │
+│  Agent Card    │  QUE hago y QUE necesitas para usarme              │
+│  A2A           │  COMO comunicarte conmigo (protocolo de mensajes)  │
+└────────────────┴────────────────────────────────────────────────────┘
+```
 
 ### MCP (Model Context Protocol)
 
