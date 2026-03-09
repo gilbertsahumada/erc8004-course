@@ -21,7 +21,7 @@ import { x402Client, x402HTTPClient } from '@x402/core/client';
 import { registerExactEvmScheme } from '@x402/evm/exact/client';
 import { toClientEvmSigner } from '@x402/evm';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createWalletClient, createPublicClient, http } from 'viem';
+import { createWalletClient, http } from 'viem';
 import { baseSepolia } from 'viem/chains';
 
 // ============================================================================
@@ -111,14 +111,8 @@ class A2AClient {
       transport: http(rpcUrl),
     });
 
-    const publicClient = createPublicClient({
-      chain: baseSepolia,
-      transport: http(rpcUrl),
-    });
-
     const evmSigner = toClientEvmSigner(
-      { address: account.address, signTypedData: (msg: any) => walletClient.signTypedData(msg) },
-      publicClient
+      { address: account.address, signTypedData: (msg: any) => walletClient.signTypedData(msg) }
     );
 
     const coreClient = new x402Client();
